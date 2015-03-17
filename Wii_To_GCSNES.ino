@@ -62,7 +62,7 @@ void loop() {
     
     
     switch (gc_Command) {
-      case 0x01:
+      case 0x00:
       case 0xff:
         //ID what controller you are using, return 0x090000
         gc_Buffer[0] = 0x29;
@@ -81,19 +81,26 @@ void loop() {
       break;
       case 0x40:
         //Return the data input from the classic controller
-        
-        Serial.println("Input Request command:");
-        Serial.println(gc_Command, HEX);
+        gc_Send(gc_Buffer, 8, 0);
+        //Serial.println("Input Request command:");
+        //Serial.println(gc_Command, HEX);
       break;
       case 0x41:
-        //
-        Serial.println("Origin command:");
-        Serial.println(gc_Command, HEX);
-      break;
       case 0x42:
         //
-        Serial.println("Recalibrate command:");
-        Serial.println(gc_Command, HEX);
+        gc_Buffer[0] = 0x00;
+        gc_Buffer[1] = 0x80;
+        gc_Buffer[2] = 0x80;
+        gc_Buffer[3] = 0x80;
+        gc_Buffer[4] = 0x80;
+        gc_Buffer[5] = 0x80;
+        gc_Buffer[6] = 0x00;
+        gc_Buffer[7] = 0x00;
+        gc_Buffer[8] = 0x02;
+        gc_Buffer[9] = 0x02;
+        gc_Send(gc_Buffer, 10, 0);
+        //Serial.println("Origin command:");
+        //Serial.println(gc_Command, HEX);
       break;
       
      default:
@@ -297,16 +304,22 @@ read_loop:
         goto read_loop;
 
 read_more:
-        if (gc_Command == 0x00) {
+        if (gc_Command == 0x40) {
           bitcount = 1;
         } else {
-          bitcount = 8;
+          bitcount = 1;
         }
 
         // make sure the line is high. Hopefully we didn't already
         // miss the high-to-low transition
         while (!GC_QUERY) {}
 read_loop2:
+        for (idle_wait=12; idle_wait>0; --idle_wait) {
+        if (!GC_QUERY) {
+            idle_wait = 12;
+        }
+        }
+        return;
         // wait for the line to go low
         while (GC_QUERY){}
 
@@ -322,7 +335,7 @@ read_loop2:
                       "nop\nnop\nnop\n"
                 );
         if (GC_QUERY){
-            gc_Command |= 0x01;
+            //gc_Command |= 0x01;
             //goto bit_test;
         }
         //Serial.println("test2");
@@ -362,33 +375,33 @@ void get_Wii_Input() {
     // 0, 0, 0, Start, Y, X, B, A
   
     // Classic Start to N64 Start
-    gc_Buffer[0] |= myClassic.startPressed() << 4;
+    gc_Buffer[0] |= (myClassic.startPressed() << 4);
       
     // Classic Y to GC C-Left
-    gc_Buffer[0] |= myClassic.yPressed() << 3;
+    gc_Buffer[0] |= (myClassic.yPressed() << 3);
           
     // Classic X to GC C-Right
-    gc_Buffer[0] |= myClassic.xPressed() << 2;
+    gc_Buffer[0] |= (myClassic.xPressed() << 2);
     
      // Classic B to GC B
-    gc_Buffer[0] |= myClassic.bPressed() << 1;
+    gc_Buffer[0] |= (myClassic.bPressed() << 1);
 
     // Classic A to GC A
-    gc_Buffer[0] |= myClassic.aPressed() << 0;
+    gc_Buffer[0] |= (myClassic.aPressed() << 0);
     
     /***********
     ** BYTE 1 **
     ***********/
     // 1, L, R, Z,D-up, D-down, D-right, D-left
-    
+ 
     // Set Bit 7 to 1 (not sure why)
-    gc_Buffer[1] != 1 << 7;
+    gc_Buffer[1] |= (1 << 7);
+    
+    // Classic L to GC L (Z for n64)
+    gc_Buffer[1] |= myClassic.leftShoulderPressed() << 6;
     
     // Classic R to GC R
     gc_Buffer[1] |= myClassic.rightShoulderPressed() << 5;
-    
-    // Classic L to GC L (Z for n64)
-    gc_Buffer[1] |= myClassic.leftShoulderPressed() << 4;
     
     // Classic Dup to to GC D-Up (N64 L)
     gc_Buffer[1] |= myClassic.upDPressed() << 3;
@@ -417,21 +430,24 @@ void get_Wii_Input() {
     ** BYTE 4 & 5 **
     ***************/
     
-    gc_Buffer[4] = (myClassic.rightStickX() * multiplier);
-    gc_Buffer[5] = (myClassic.rightStickY() * multiplier);
+    gc_Buffer[4] = ((myClassic.rightStickX()-32)*6);
+    gc_Buffer[5] = ((myClassic.rightStickY()-32)*6);
     
     // Classic RZ to N64 C-Down
+    if (myClassic.rzPressed()) {
     gc_Buffer[5] = 0x00000000;
+    }
       
     // Classic LZ to N64 C-Down
+    if (myClassic.lzPressed()){
     gc_Buffer[5] = 0x00000000;
-    
+    }
     /***************
     ** BYTE 6 & 7 **
     ***************/
     //unused atm
-    gc_Buffer[6] = 0x00000000;
-    gc_Buffer[7] = 0x00000000;
+    gc_Buffer[6] = 0x00;
+    gc_Buffer[7] = 0x00;
       
     // in order to make the controller a bit more dynamic, let the user increase or decrease the senstivitiy by .5
     // if the minus button and the dpad is used together
@@ -455,5 +471,8 @@ void get_Wii_Input() {
       multiplier = 4;
     
     //Serial.println(gc_Buffer[2], HEX);
-  
+    GC_LOW;
+    asm volatile ("nop\nnop\nnop\nnop\n"
+                  "nop\nnop\nnop\nnop\n");
+    GC_HIGH;
 }
