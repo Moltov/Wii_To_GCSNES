@@ -1,6 +1,8 @@
 #include "Wire.h"
 #include "WiiClassic.h"
 #include "crc_table.h"
+//#include <pthread.h>
+//#include <stdio.h>
 #include <EEPROM.h>
 
 #define GC_PIN 8
@@ -48,7 +50,7 @@ void loop() {
     get_Wii_Input();
     
     noInterrupts();
-    get_GC_Command();
+    get_GC_Command(0);
   }
   
   // Wait for incomming GC command
@@ -74,7 +76,7 @@ void loop() {
         gc_Send(gc_Buffer, 3, 0);
         needCommand = true;
           
-        get_GC_Command();
+        get_GC_Command(0);
         
         //Serial.println("ID command:");
         //Serial.println(gc_Command, HEX);
@@ -82,6 +84,7 @@ void loop() {
       case 0x40:
         //Return the data input from the classic controller
         gc_Send(gc_Buffer, 8, 0);
+        get_GC_Command(1);
         //Serial.println("Input Request command:");
         //Serial.println(gc_Command, HEX);
       break;
@@ -113,6 +116,7 @@ void loop() {
     
     
     interrupts();
+    
 }
 
 void gc_Send(unsigned char *buffer, char length, bool wide_stop)
@@ -251,17 +255,33 @@ inner_loop:
     GC_HIGH;
 }
 
-void get_GC_Command() {
+void get_GC_Command(int ms) {
     gc_Command = 0x00;
     int bitcount;
     char *bitbin = gc_Raw_Dump;
     int idle_wait;
-    int test = 200;
+    int test = 2500;
+    
+    
 
 func_top:
     gc_Command = 0;
     
     bitcount = 8;
+    
+    if (ms > 0) {
+      while (test > 0) {
+      if (!GC_QUERY){
+      needCommand = true;
+      goto read_jump;
+      }
+      test--;
+      }
+      if (needCommand == false) {
+        return;
+      }
+      
+    }
 
     // wait to make sure the line is idle before
     // we begin listening
@@ -276,7 +296,7 @@ func_top:
 read_loop:
         // wait for the line to go low
         while (GC_QUERY){}
-
+read_jump:
         // wait approx 2.5us and poll the line
         asm volatile (
                       "nop\nnop\nnop\nnop\nnop\n"  
