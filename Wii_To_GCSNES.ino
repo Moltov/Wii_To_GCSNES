@@ -47,6 +47,8 @@ void loop() {
   if (needCommand == false) {
     memset(gc_Buffer, 0, sizeof(gc_Buffer));
     // put your main code here, to run repeatedly:
+    //Wait until the next update is about 1 ms away with this delay
+    delay(12);
     get_Wii_Input();
     
     noInterrupts();
