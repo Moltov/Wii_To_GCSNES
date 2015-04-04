@@ -10,7 +10,13 @@
 #define GC_LOW DDRB |= 0x01
 #define GC_QUERY (PINB & 0x01)
 
+
+//Look up table for N64 DeadZone
+static const uint8_t oot_mapping[64] = {57,58,59,60,61,63,65,66,68,70,72,74,76,78,80,82,84,86,88,90,92,94,97,98,101,102,104,105,107,109,111,145,147,149,151,152,154,155,158,159,162,164,166,168,170,172,174,176,178,180,182,184,186,188,190,191,193,195,196,197,198,199};
+
+unsigned char gc_Buffer2[33];
 unsigned char gc_Buffer[33];
+unsigned char cc_Neutral[4];
 
 bool needCommand = false;
 
@@ -26,26 +32,43 @@ WiiClassic myClassic = WiiClassic();
 double multiplier = 4;
 
 double gcUpdate = 0;
+bool deadZone = true;
+
+bool dUpPressed = false;
+bool dDownPressed = false;
+bool dLeftPressed = false;
+bool dRightPressed = false;
 
 void setup() {
   // Set up the serial connection for the classic pro
   Wire.begin();
   Serial.begin(9600);
-  int readValue = EEPROM.read(0);
-  if(readValue != 255)
-    multiplier = (readValue + 200) / 100;
+  deadZone = EEPROM.read(0);
+  //if(readValue != 255)
+    //multiplier = (readValue + 200) / 100;
   myClassic.begin();
   myClassic.update();
+  
+  //init gc buffer
+  memset(gc_Buffer, 0, sizeof(gc_Buffer));
+  memset(gc_Buffer, 0, sizeof(gc_Buffer2));
+  
+  //Get the nuetral position
+  cc_Neutral[0] = myClassic.leftStickX();
+  cc_Neutral[1] = myClassic.leftStickY();  
+  cc_Neutral[2] = myClassic.rightStickX();
+  cc_Neutral[3] = myClassic.rightStickY();
 
   digitalWrite(GC_PIN, LOW);
-  pinMode(GC_PIN, INPUT);  
+  pinMode(GC_PIN, INPUT);
 }
 
 void loop() {
   //unsigned char data, addr;
   
   if (needCommand == false) {
-    memset(gc_Buffer, 0, sizeof(gc_Buffer));
+    //memset(gc_Buffer, 0, sizeof(gc_Buffer));
+    
     // put your main code here, to run repeatedly:
     //Wait until the next update is about 1 ms away with this delay
     delay(12);
@@ -391,25 +414,31 @@ void get_Wii_Input() {
   myClassic.update();
   gcUpdate++;
   
+  gc_Buffer[0] = gc_Buffer2[0];
+  gc_Buffer[1] = gc_Buffer2[1];
+  
+  gc_Buffer2[0] = 0x00;
+  gc_Buffer2[1] = 0x00;
+  
   /***********
     ** BYTE 0 **
     ***********/
     // 0, 0, 0, Start, Y, X, B, A
   
     // Classic Start to N64 Start
-    gc_Buffer[0] |= (myClassic.startPressed() << 4);
+    gc_Buffer2[0] |= (myClassic.startPressed() << 4);
       
     // Classic Y to GC C-Left
-    gc_Buffer[0] |= (myClassic.yPressed() << 3);
+    gc_Buffer2[0] |= (myClassic.yPressed() << 3);
           
     // Classic X to GC C-Right
-    gc_Buffer[0] |= (myClassic.xPressed() << 2);
+    gc_Buffer2[0] |= (myClassic.xPressed() << 2);
     
      // Classic B to GC B
-    gc_Buffer[0] |= (myClassic.bPressed() << 1);
+    gc_Buffer2[0] |= (myClassic.bPressed() << 1);
 
     // Classic A to GC A
-    gc_Buffer[0] |= (myClassic.aPressed() << 0);
+    gc_Buffer2[0] |= (myClassic.aPressed() << 0);
     
     /***********
     ** BYTE 1 **
@@ -417,43 +446,92 @@ void get_Wii_Input() {
     // 1, L, R, Z,D-up, D-down, D-right, D-left
  
     // Set Bit 7 to 1 (not sure why)
-    gc_Buffer[1] |= (1 << 7);
+    gc_Buffer2[1] |= (1 << 7);
     
     // Classic L to GC L (Z for n64)
-    gc_Buffer[1] |= myClassic.leftShoulderPressed() << 6;
+    gc_Buffer2[1] |= myClassic.leftShoulderPressed() << 6;
     
     // Classic R to GC R
-    gc_Buffer[1] |= myClassic.rightShoulderPressed() << 5;
+    gc_Buffer2[1] |= myClassic.rightShoulderPressed() << 5;
     
     // Classic Dup to to GC D-Up (N64 L)
-    gc_Buffer[1] |= myClassic.upDPressed() << 3;
+    gc_Buffer2[1] |= myClassic.upDPressed() << 3;
     
     // Classic Ddown to to GC D-Down (N64 L)
-    gc_Buffer[1] |= myClassic.downDPressed() << 2;
+    gc_Buffer2[1] |= myClassic.downDPressed() << 2;
     
     // Classic Dright to GC D-right (N64 L)
-    gc_Buffer[1] |= myClassic.rightDPressed() << 1;
+    gc_Buffer2[1] |= myClassic.rightDPressed() << 1;
     
     // Classic Dleft to GC D-Left (N64 L)
-    gc_Buffer[1] |= myClassic.leftDPressed() << 0;
+    gc_Buffer2[1] |= myClassic.leftDPressed() << 0;
     
     /***************
     ** BYTE 2 & 3 **
     ***************/
+    //JOYSTICK DEADZONE DATA FOR OOT
+    //ESS End - 23
+    //ESS Start - 26
+    //Center of Controller - 32
+    //ESS Start - 38
+    //ESS End - 41
+    //X axis:
+    //HOLDING LEFT 0--23--ESS--26--neutral--38--ESS--41--HOLDING RIGHT
+    //Y axis:
+    //HOLDING DOWN 0--23--ESS--26--neutral--38--ESS--41--HOLDING UP
     
-    // second and third byte (control stick)
-    // the classic controller pro reads the values of the stick as default of (32:x and 30:y [by my tests, I'm assuming it's 0 to 64 with 32 as center])
-    // the n64 takes in a signed int from -80 to 80 as a default of 0
-    // will subtract the value by 32 (default classic) and multiply by 2.5 giving us the proper value range
-    gc_Buffer[2] = (myClassic.leftStickX() * multiplier);
-    gc_Buffer[3] = (myClassic.leftStickY() * multiplier);
+    gc_Buffer[2] = myClassic.leftStickX();
+    gc_Buffer[3] = myClassic.leftStickY();
+    
+    //ADJUST DEADZONE
+    //This left the use adjust the deadzone of the controller
+    //Press HOME + DUP to toggle between dead zones
+    //The default is n64 dead zone and D + up toggles to VC deadzone.
+    if (deadZone == false) {
+      //VC Dead Zone
+      if (gc_Buffer[2] == 27 || gc_Buffer[2] == 28) {
+        gc_Buffer[2] = 26;
+      }
+      if (gc_Buffer[2] == 36 || gc_Buffer[2] == 37) {
+        gc_Buffer[2] = 38;
+      }
+      if (gc_Buffer[3] == 27 || gc_Buffer[3] == 30) {
+        gc_Buffer[3] = 26;
+      }
+      if (gc_Buffer[3] == 36 || gc_Buffer[3] == 37) {
+        gc_Buffer[3] = 38;
+      }
+    } else {
+      //N64 DeadZone (Default)
+      gc_Buffer[2] = oot_mapping[gc_Buffer[2]];
+      gc_Buffer[3] = oot_mapping[gc_Buffer[3]];
+      /*
+      if (gc_Buffer[2] >= 23 && gc_Buffer[2] <= 30) {
+        gc_Buffer[2] = 26;
+      }
+      if (gc_Buffer[2] >= 34 && gc_Buffer[2] <= 41) {
+        gc_Buffer[2] = 38;
+      }
+      if (gc_Buffer[3] >= 23 && gc_Buffer[3] <= 30) {
+        gc_Buffer[3] = 26;
+      }
+      if (gc_Buffer[3] >= 34 && gc_Buffer[3] <= 41) {
+        gc_Buffer[3] = 38;
+      }*/
+    }
+    
+    //Apply the multiplier for GC if VC deadzone
+    if (deadZone == false) {
+      gc_Buffer[2] = (gc_Buffer[2] * multiplier);
+      gc_Buffer[3] = (gc_Buffer[3] * multiplier);
+    }
     
     /***************
     ** BYTE 4 & 5 **
     ***************/
     
-    gc_Buffer[4] = ((myClassic.rightStickX()-32)*6);
-    gc_Buffer[5] = ((myClassic.rightStickY()-32)*6);
+    gc_Buffer[4] = ((myClassic.rightStickX() - 32)*6);
+    gc_Buffer[5] = ((myClassic.rightStickY() - 32)*6);
     
     // Classic RZ to N64 C-Down
     if (myClassic.rzPressed()) {
@@ -473,7 +551,7 @@ void get_Wii_Input() {
       
     // in order to make the controller a bit more dynamic, let the user increase or decrease the senstivitiy by .5
     // if the minus button and the dpad is used together
-    if(myClassic.rightDPressed() && myClassic.selectPressed())
+    /*if(myClassic.rightDPressed() && myClassic.selectPressed())
       if(multiplier < 5.5)
         multiplier += .5;
 
@@ -483,18 +561,33 @@ void get_Wii_Input() {
     
     if(myClassic.upDPressed() && myClassic.selectPressed())
     {
-      multiplier = ((EEPROM.read(0)) + 200) / 100;
+      //multiplier = ((EEPROM.read(0)) + 200) / 100;
+    }*/
+    
+    //if(myClassic.downDPressed() && myClassic.selectPressed())
+      //EEPROM.write(0, ((multiplier * 100) - 200));
+        
+    if(myClassic.upDPressed()) {
+      if(myClassic.homePressed() && dUpPressed == false) {
+        deadZone = !deadZone;
+        EEPROM.write(0, deadZone);
+      }
+      dUpPressed = true;
+    } else {
+      dUpPressed = false;
+    }
+    if(myClassic.homePressed() && myClassic.selectPressed()) {
+      multiplier = 4;
+     //Get the nuetral position
+      cc_Neutral[0] = myClassic.leftStickX();
+      cc_Neutral[1] = myClassic.leftStickY();  
+      cc_Neutral[2] = myClassic.rightStickX();
+      cc_Neutral[3] = myClassic.rightStickY(); 
     }
     
-    if(myClassic.downDPressed() && myClassic.selectPressed())
-      EEPROM.write(0, ((multiplier * 100) - 200));
-        
-    if(myClassic.homePressed() && myClassic.selectPressed())
-      multiplier = 4;
-    
     //Serial.println(gc_Buffer[2], HEX);
-    GC_LOW;
-    asm volatile ("nop\nnop\nnop\nnop\n"
-                  "nop\nnop\nnop\nnop\n");
-    GC_HIGH;
+    //GC_LOW;
+    //asm volatile ("nop\nnop\nnop\nnop\n"
+     //             "nop\nnop\nnop\nnop\n");
+    //GC_HIGH;
 }
