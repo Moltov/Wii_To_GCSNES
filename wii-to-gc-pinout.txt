@@ -1,0 +1,29 @@
+Wii female pinout
+
+ ______           _______
+|      |_________|       |
+|   GND   Unused  SCLOCK |
+|    |'___''___''___'|   |
+|    | ___  ___  ___ |   |
+|    |'   ''   ''   '|   |
+|   DATA  DDetect  VCC   |
+--------------------------
+
+N64 male Pinout
+  .-'''''''-.
+ / O   O   O \
+|_____________|
+GND   DATA   VCC
+
+
+Brown -> A5
+Yellow -> A4
+Black -> 3.3V
+White -> Gnd
+
+GC pinout
+White + Green -> Gnd
+Yellow -> 5V
+Red -> Pin 8
+Blue -> 3.3V
+
